@@ -1,0 +1,47 @@
+cp .env.example .env
+
+
+docker compose up -d --build
+
+
+docker compose ps
+
+
+curl -s http://localhost:3000/health
+
+
+curl -X POST http://localhost:3000/api/user-activity-events \
+  -H "Content-Type: application/json" \
+  -d '{"event_type": "user_liked_post", "payload": {"user_id": "alice-101", "post_id": "post-202", "recipient_id": "bob-303"}}'
+
+
+
+curl -s http://localhost:3000/api/users/bob-303/notifications
+
+
+curl -X POST http://localhost:3000/api/user-activity-events \
+  -H "Content-Type: application/json" \
+  -d '{"event_type": "user_commented", "payload": {"user_id": "charlie-404", "post_id": "post-202", "comment_text": "Awesome architecture!", "recipient_id": "bob-303"}}'
+
+
+curl -s http://localhost:3000/api/users/bob-303/notifications
+
+
+curl -i -X PATCH http://localhost:3000/api/notifications/<NOTIFICATION_ID>/read
+
+
+curl -s http://localhost:3000/api/users/bob-303/notifications
+
+
+docker compose exec -i kafka kafka-console-producer --bootstrap-server localhost:9093 --topic user-activity <<EOF
+{"event_id":"duplicate-event-999","timestamp":"$(date -u +"%Y-%m-%dT%H:%M:%SZ")","source":"manual-test","event_type":"user_liked_post","payload":{"user_id":"test-actor","target_id":"post-999","recipient_id":"bob-303"}}
+EOF
+
+
+curl -s http://localhost:3000/api/users/bob-303/notifications
+
+
+docker compose logs consumer-service | grep "Idempotency block"
+
+
+docker compose down -v
