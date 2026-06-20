@@ -1,0 +1,29 @@
+{
+  "name": "consumer-service",
+  "version": "1.0.0",
+  "description": "Consumer Service for processing user-activity events from Kafka",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "test": "jest --config jest.config.js --passWithNoTests"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "kafkajs": "^2.2.4",
+    "mysql2": "^3.9.7",
+    "uuid": "^9.0.1",
+    "winston": "^3.13.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.12.7",
+    "@types/uuid": "^9.0.8",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}
