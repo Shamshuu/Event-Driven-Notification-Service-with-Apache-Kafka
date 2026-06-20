@@ -1,0 +1,105 @@
+1. Project Overview & Purpose
+
+What the Project Does:
+This project is an Event-Driven Notification System that processes user actions (like likes and comments) asynchronously to create real-time notification records. Instead of processing notifications in the same request thread where a user likes a post, the system splits this work into two decoupled microservices:
+
+API Service (Publisher): Accepts events and streams them to a message broker.
+
+Consumer Service (Subscriber): Listens to the message broker, generates formatted notifications, and writes them to a database.
+
+
+The Purpose
+
+High Scalability:
+High-frequency actions (like a viral post getting millions of likes) won't overload the main application database. The API service simply registers the event in a fast message broker and responds instantly.
+
+Fault Tolerance:
+If the database or notification consumer goes down, events are not lost. They remain safely stored inside the message broker and will be processed automatically as soon as the consumer recovers.
+
+Decoupled Architecture: 
+Teams can modify the notification formatting, database structure, or add new handlers (e.g. sending emails or push notifications) without modifying the core API service.
+
+
+2. How Each Technology Helps
+
+Apache Kafka: 
+Serves as the distributed event streaming backbone. It buffers events durably. By using the notification recipient_id as the Kafka message key, Kafka routes all notifications for the same user to the same partition, guaranteeing they are processed in the strict temporal order they occurred.
+
+ZooKeeper: 
+Coordinates the Kafka broker cluster, managing topic partitions, controller elections, and cluster state metadata.
+
+Node.js & Express: 
+Express exposes lightweight REST endpoints. Node's non-blocking, event-driven I/O model is perfect for handling high-concurrency requests and streaming I/O.
+
+TypeScript: 
+Adds compile-time type safety over JavaScript, preventing runtime crashes (such as reference errors) and making the codebase highly structured and maintainable.
+
+MySQL: 
+Serves as the relational persistent database. It easily indexes read/unread flags and provides ACID transactional guarantees.
+
+Zod: 
+Enforces strict validation schemas at the entry points of both the API and the Consumer. If a request body or consumed message is malformed, Zod rejects it immediately, protecting downstream services from corrupt data.
+
+Docker & Docker Compose: 
+Packages all configurations (Zookeeper, Kafka, MySQL, code services) into containers. This ensures environment parity (the project runs exactly the same on a local machine, staging, or production cloud environment).
+
+
+3. How Each Functionality is Implemented
+
+A. Event Ingestion (POST /api/user-activity-events)
+
+Flow: 
+The client sends a JSON payload representing a user action (e.g. a like or a comment).
+
+Implementation:
+
+The API Service validates the structure using Zod (PublishEventSchema).
+It generates a unique event_id (UUID) and a UTC timestamp.
+It normalizes the fields (e.g. resolving post_id to target_id and mapping liked_by_user_id or recipient_id to recipient_id).
+It uses the kafkajs producer to send the message to the Kafka user-activity topic. The message key is set to the recipient_id to ensure ordering.
+It immediately responds with 202 Accepted and the generated event_id.
+
+B. Asynchronous Event Processing (Kafka Consumer)
+
+Flow: 
+The Consumer Service continually pulls events from Kafka.
+
+Implementation:
+
+The consumer parses the Kafka message and validates it against KafkaEventSchema.
+It evaluates event_type:
+If user_liked_post: generates message text: "Your post was liked by {user_id}."
+If user_commented: generates message text: "Your post received a comment from {user_id}: {comment_text}"
+It inserts a new notification record into the MySQL database.
+
+C. Exactly-Once Processing (Idempotency)
+
+Flow: 
+Guarantees that even if Kafka delivers the same message multiple times due to a network retry, only one notification is stored.
+
+Implementation:
+
+The notifications table defines a UNIQUE index constraint on the processed_event_id column.
+When inserting the notification, the consumer writes the original Kafka event_id into processed_event_id.
+If a duplicate message is consumed, the INSERT query triggers a duplicate key violation (ER_DUP_ENTRY / SQL error code 1062).
+The consumer catches this specific error, logs a warning (Idempotency block...), and safely returns success without throwing an error. This alerts Kafka to successfully commit the message offset so it is not processed again.
+
+D. Fetch User Notifications (GET /api/users/{userId}/notifications)
+
+Flow: 
+Retrieves all unread notifications for a user.
+
+Implementation:
+
+Queries the MySQL database: SELECT ... FROM notifications WHERE recipient_user_id = ? AND status = 'unread' ORDER BY created_at DESC.
+Uses a composite index idx_recipient_user_id_status on the database to make this query execute in milliseconds even under high-scale tables.
+
+E. Mark Notification as Read (PATCH /api/notifications/{notificationId}/read)
+
+Flow: 
+Sets a notification status to read.
+
+Implementation:
+
+Executes UPDATE notifications SET status = 'read' WHERE notification_id = ?.
+If the database returns affectedRows === 0, it means the notification ID does not exist; the API responds with 404 Not Found. Otherwise, it responds with 204 No Content.
